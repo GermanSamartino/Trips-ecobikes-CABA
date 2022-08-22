@@ -1,0 +1,287 @@
+---
+title: "Introduccion a la Ciencia de Datos"
+subtitle: "Taller 5 - Presentación de resultados"
+output: 
+  html_document:
+    css: style.css
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: paper
+---
+```{r options, echo = FALSE}
+
+knitr::opts_chunk$set(warning = FALSE, #no visualizar advertencias
+                      error = FALSE, #no visualizar errores
+                      message = FALSE) # no visualizar mensajes de consola
+
+``` 
+
+--------------------------------------------------------------------------------------  
+
+  Germán Samartino
+  
+  Primer cuatrimestre 2022
+
+---------------------------------------------------------------------------------------
+
+# Introducción
+
+Como práctica para la presentación de un trabajo que hayamos realizado, vamos a trabajar con un nuevo juego de datos que podemos descargar desde https://data.buenosaires.gob.ar/dataset/bicicletas-publicas . Este set de datos contiene informacion asociada a los viajes en las ecobicis de la Ciudad Autonoma de Buenos Aires durante el 2021. Retomando lo que vimos en el taller anterior, vamos a intentar construir visualizaciones que nos permitan ver varias cosas sobre la estacion que mas demanda de bicicletas tenga:
+
+
+* `1.` ¿Hacia dónde se dirige la gente desde esa estación?
+* `2.` ¿Cómo evolucionó el uso durante el año?
+* `3.` ¿Qué día de la semana se usa más?
+* `4.` ¿A qué hora crece la demanda?
+
+
+# Exploración de las bases
+
+Primero cargaremos los paquetes que vamos a utilizar
+
+```{r paquetes, message=FALSE}
+library(tidyverse) # Set de herramientas inicial
+library(lubridate) # Manejo de Fechas
+library(viridis) # Escala de colores en nuestras visualizaciones
+library(plotly) # Interacción a nuestras visualizaciones
+library(kableExtra) # Visualizaciones de tablas
+```
+
+Luego cargamos la bases que vamos a utilizar. Recordemos que podemos obtener la ubicación del archivo a partir de la función file.choose(). Y luego pegar el resultado de esa función en read_csv().
+
+
+
+```{r cargo recorridos}
+bicis_21 <- read_csv("recorridos_realizados_2021.csv")
+```
+
+También podríamos usar directamente la ubicación desde internet. Para esto último lo que debemos hacer es, en lugar de dar click al botón Descargar como siempre, le damos click derecho y seleccionamos "Copiar la dirección del enlace". Aca hay que prestar atención a que la dirección que nos trae termine en '.csv'. Recordemos que esto nos garantiza estar utilizando siempre la última versión de los datos, pero con la necesidad de estar conectades a internet y de esperar cada vez que corro mis datos a que se descarguen los datos (que podrían ser pesados).
+
+![](copiar_direccion_enlace.png "copiar url")
+![](copiar_direccion_enlace.png "copiar url")
+
+Ahora solo debemos pegar esa ubicación en nuestro __read_csv()__ (recuerden, la ruta del archivo va siempre entre comillas)
+
+
+```{r kable de eventos, echo=FALSE}
+kableExtra::kable(head(bicis_21)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+  column_spec(1, background = "orange")%>% 
+ scroll_box(width = "100%", height = "400px")
+```
+
+Una primera cuestión que podemos ver es que una de nuestras variables, "Duracion Recorrido", tiene caracteres en mayúsculas, minúsculas y también tiene espacios. Esto es algo que sucede con frecuencia, y que puede traernos algunas dificultades más adelante. Para eso, podemos usar el paquete __janitor__, que viene a simplificar algunas cuestiones referidas a la exploración y el procesamiento de los datos. En principio vamos a utilizar la función clean_names(), para estandarizar el nombre de las columnas de manera rápida y sencilla. Esta es una muy buena práctica para antes de empezar a manipular nuestra base de datos. Aquí las demás columnas ya vienen con ese formato "limpio", por lo que sólo vamos a observar cambios en el nombre de Duracion Recorrido. 
+
+Como para esta instancia sólo nos interesa la función clean_names() dentro de ese paquete, lo que hacemos es, en vez de descargar el paquete entero y llamarlo, escribimos el nombre del paquete, seguido de dos puntos escritos dos veces (::), y luego la función que queremos usar:
+
+
+```{r}
+bicis_21_j <- bicis_21 %>% 
+  janitor::clean_names()
+```
+
+```{r kable de eventos2, echo=FALSE}
+kable(head(bicis_21_j)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 12) %>% 
+  column_spec(1, background = "orange")%>% 
+ scroll_box(width = "100%", height = "400px")
+```
+
+# Antes que nada...
+
+Lo primero que tenemos que identificar, previo a pensar en resolver las preguntas planteadas, es __cuál es la estación con mayor demanda de bicicletas__. Como tenemos una variable con el nombre las estaciones, utilizaremos esa como variable categórica. Y veremos la frecuencia de cada uno de los distintos valores que podía tomar (niveles de mi variable categórica o factor).
+
+```{r}
+nodo_salida_mas_importante <- bicis_21_j %>% 
+  count(nombre_estacion_origen,
+        sort = T,
+        name = 'cantidad_salidas')%>% 
+  top_n(10)
+```
+
+Usamos Kable para mostrar los primeros 10 resultados de esa frecuencia (es decir, los valores contenidos en nodo_salida_mas_importante).
+
+```{r}
+
+kable(nodo_salida_mas_importante) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 12, full_width = F, position = "left") %>% 
+  column_spec(1, background = "orange")
+
+```
+
+
+Excelente! Comenzaremos a trabajar sobre la estación 014 - Pacifico, que se encuentra a metros de Juan B Justo y Santa Fe.
+
+# Ejercicios
+## ¿Hacia dónde se dirige la gente desde esa estación?
+
+Bueno, ahora vamos a trabajar sobre nuestros datos. Como queremos saber hacia dónde se dirige la gente que saca bicicletas en nuestra estación con mayor demanda, primero debemos filtrar los registros para quedarnos solamente con los que efectivamente salen de ahí. Luego, decidimos filtrar también para que el lugar de devolución de la bicicleta sea otra estación; esto es un criterio teórico y dependerá de lo que se quiera ver, pero para casos prácticos vamos a armar el filtro con ambas condiciones. Una vez realizado, podemos directamente usar la función count(). Esta vez queremos ver la frecuencia de la variable categórica nombre_estacion_destino. Además, le agregamos la variable name igualada a un valor en formato character (siempre entre comillas). De esta manera le estamos pidiendo a R que no ponga el nombre que suele poner por defecto cuando uso la función count().
+
+```{r proceso data para ej 1}
+destinos_desde_pacifico <- bicis_21_j %>% 
+  filter(nombre_estacion_origen == '014 - Pacifico' &
+           nombre_estacion_destino != '014 - Pacifico') %>% 
+  count(nombre_estacion_destino,
+        sort = T,
+        name = 'cantidad_salidas_desde_pacifico') 
+```
+
+Veamos entonces cómo quedará nuestra visualización. Utilizaremos __geom_bar()__ definiendo los valores a visualizar en los ejes en __aes()__ . Pero primero nos quedaremos solo con los primeros 10 valores para que la visualización no nos quede poco interpretable, utilizando la función __top_n()__. Dentro de ggplot, utilizaremos la funcion __reorder()__ para cuando le indiquemos nuestro eje x. De esta manera, ordena de manera dinámica nuestros valores del eje x a partir de otro valor. Vemos que también agregamos una capa nueva __scale_fill_viridis(discrete = T) __ . Esto es lo que nos dará una escala de colores para nuestros datos. Debemos indicar que nuestra variable de eje horizontal es discreta, es decir, no puede tomar infinitos valores como las variables continuas. Otra capa que no habíamos visto es __theme(legend.position = "none")__. Esta capa hace que R no nos muestre las referencias, ya que sobran.
+
+```{r ggplot ej 1}
+destinos_desde_pacifico %>% 
+  top_n(10, cantidad_salidas_desde_pacifico) %>% 
+  ggplot(aes(x=reorder(nombre_estacion_destino,
+                       cantidad_salidas_desde_pacifico),
+             weight=cantidad_salidas_desde_pacifico))+
+  geom_bar(aes(fill = factor(nombre_estacion_destino))) +
+  scale_fill_viridis(discrete = T) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  coord_flip() +
+  labs(x = 'Estación',
+       y = 'Cantidad de llegadas',
+       title = 'Cantidad de llegadas por estación',
+       subtitle = 'desde Pacífico',
+       caption = 'Fuente de datos: https://data.buenosaires.gob.ar/')
+```
+
+## ¿Cómo evolucionó el uso durante el año para esa estación de bicicletas?
+
+Trabajemos sobre nuestros datos. Primero volveremos a aplicar nuestro filtro para quedarnos sólo con los viajes salidos desde Pacífico, que no la tengan como estación de destino, pero, ¿Podríamos haber generado un sub-set de datos intermedio con este filtro y no repetir código? Sería una buena práctica, dado que repetir código nos lleva a que si en algún momento encontramos algún error en nuestra lógica, deberíamos ir a modificarla cada vez que repetimos código. 
+
+
+```{r armo base filtrada}
+bicis_21_pacífico<-bicis_21_j %>% 
+  filter(nombre_estacion_origen == '014 - Pacifico',
+         nombre_estacion_destino != nombre_estacion_origen)
+
+
+```
+
+Bueno, volviendo a lo nuestro: si queremos ver la evolución por fecha lo primero que deberíamos hacer es dejar nuestro campo fecha en el formato correcto. Como vemos viene en un formato donde también incluye la hora: para eso, primero lo convertimos a un formato que lubridate pueda entender con la función __parse_date_time()__ (esto se llama "parseado") y luego le pedimos que lo pase a fecha sin horario mediante __as_date()__ . Finalmente hacemos un count para contar la frecuencia de cada fecha.
+
+```{r procesamiento datos ej 2}
+viajes_desde_pacifico_que_fecha <- bicis_21_pacífico %>%
+  mutate(fecha_de_inicio = parse_date_time(fecha_origen_recorrido, 'ymd HMS'),
+         dia_inicio = as_date(fecha_de_inicio)) %>%
+  count(dia_inicio) 
+
+```
+
+Veamos cómo queda entonces la visualización. Utilizaremos __geom_line()__ definiendo los valores a visualizar en los ejes en __aes()__ . Además vemos que en el aes propio del geom_line(), podemos definir detalles como el color y el tamaño de la línea.
+
+```{r ggplot ej 2}
+visualizacion_viajes_por_fecha <- viajes_desde_pacifico_que_fecha %>% 
+  ggplot(aes(x=dia_inicio, y = n)) + 
+  geom_line(color = 'green3', size = .5)+
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(x = 'Dia',
+       y = 'Cantidad de salidas',
+       title = 'Cantidad de salidas por día desde Pacífico')
+
+ggplotly(visualizacion_viajes_por_fecha, tooltip = c("x", "y"))
+```
+
+# Conclusión
+
+En esta clase exploramos herramientas para presentar el trabajo que hicimos, acompañando los datos explorados con una explicación de los pasos y las decisiones tomadas. Como vimos, Rmarkdown contiene una cantidad de parámetros muy numeroso, que nos va a permitir acomodar visualmente la salida a lo que queramos mostrar.
+
+![](rmarkdown_wizards.png "RmarkdownWizards")
+
+# Actividad adicional
+
+Les dejamos dos ejercicios a modo de trabajo práctico opcional para que continúen explorando los datos y pongan en práctica los contenidos vistos hasta ahora. Les proponemos que lo resuelvan realizándolo en un archivo .rmd!
+
+##  ¿Qué día de la semana se usa más?
+
+Para saber qué día de la semana se usa más la ecobici en la estación con mayor demanda, lo primero que haremos será cambiar el formato de la fecha para saber qué día de la semana corresponde a cada registro. Entonces, utilizando el data set bicis_21_pacifico, agregamos una nueva variable en formato __lubridate__ a la cual le asignamos la fecha de origen. Con la función __wday()__ sabemos a qué dia de la semana corresponde cada registro. Por ultimo, contamos los registros anuales para cada día de la semana, pudiendo manipularla como variable categórica al settear _label = True_
+
+```{r procesamos los datos por dia_de_semana ej3}
+dia_con_mas_demanda <- bicis_21_pacífico %>%
+  mutate(fecha_de_inicio = parse_date_time(fecha_origen_recorrido, 'ymd HMS'),
+         dia_inicio = as_date(fecha_de_inicio), 
+         dia_de_semana = wday(dia_inicio,
+                              label = T,
+                              abbr = T)) %>%
+  count(dia_de_semana,
+        sort = T,
+        name = "cantidad_salidas_por_dia") 
+```
+
+Ahora procedemos a la visualización de los resultados mediante un gráfico de barras __geom_bar()__:
+
+```{r visualizacion ej3}
+visualizacion_salidas_por_dia_semana <- dia_con_mas_demanda %>% 
+  ggplot(aes(x=dia_de_semana,
+             y = cantidad_salidas_por_dia,
+             label = cantidad_salidas_por_dia,
+             fill = dia_de_semana)) +
+  geom_bar(stat='identity',
+           width = 0.7,
+           position = "nudge") +
+  geom_text(size = 4, # tamaño de letra,
+            position = position_stack(vjust = 1.05), # ubicación
+            colour = 'black') +
+  scale_fill_viridis(discrete = T) +
+  scale_x_discrete(label = c("Sun"="Domingo", "Mon"="Lunes", "Tue"="Martes", "Wed"="Miércoles", "Thu"="Jueves", "Fri"="Viernes", "Sat"="Sábado")) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(x = 'Día de la semana',
+       y = 'Cantidad de salidas',
+       title = 'Cantidad de salidas por dia de semana',
+       subtitle = 'desde Pacífico',
+       caption = 'Fuente de datos: https://data.buenosaires.gob.ar/')
+
+visualizacion_salidas_por_dia_semana
+```
+
+En el gráfico se observa que la cantidad de salidas desde la estación Pacífico para el año 2021 tienen su máximo en el día __Martes__, con un acumulado anual de 5634 salidas.
+
+
+
+## ¿A qué hora crece la demanda?
+
+Para saber cómo crece por hora la demanda de ecobicis en la estación Pacífico en el año 2021 primero pondremos la fecha en un formato que nos permita acceder a la hora en que se realizó cada registro. Para ello, creamos una nueva variable que tenga el formato __hour()__. Luego contamos cuantos registros hay por cada hora del día a lo largo del año. 
+
+```{r procesamos los datos por hora ej4}
+hora_con_mas_demanda <- bicis_21_pacífico %>%
+  mutate(fecha_de_inicio = parse_date_time(fecha_origen_recorrido, 'ymd HMS'),
+         hora_inicio = hour(fecha_de_inicio)) %>%
+  count(hora_inicio,
+        name="cantidad_de_salidas")
+```
+
+Obteniendo el siguiente dataset:
+
+```{r tabla salidas por hora, echo=FALSE}
+kable(hora_con_mas_demanda) %>%
+  kable_styling(bootstrap_options = c("striped", "hover","condensed"), font_size = 12, full_width = F, position = "left") %>% 
+  column_spec(1, background = "orange")
+
+```
+
+
+Es importante aclarar que se trata de la contidad de salidas desde Pacífico acumuladas a lo largo del año 2021. En caso de quere acceder a la media diaria de salidas por hora tenemos que dividir la cantidad anual de salidas que obtuvimos para cada hora por los 365 días del año.
+Para visualizar estos resultados utilizamos __geom_line__:
+
+```{r visualizacionn ej4}
+visualizacion_viajes_hora <- hora_con_mas_demanda %>% 
+  ggplot(aes(x=hora_inicio,y = cantidad_de_salidas/365)) + 
+  geom_line(aes(x=as.factor(hora_inicio), y = cantidad_de_salidas/365),
+            group=1,
+            color = 'orange',
+            size = .5)+
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(x = 'Hora',
+       y = 'Cantidad de salidas',
+       title = 'Cantidad de salidas diarias por hora desde Pacífico')
+
+ggplotly(visualizacion_viajes_hora, tooltip = c("x", "y"))
+```
+
+El gráfico muestra que la demanda de ecobicis en la estación Pacífico comienza a crecer a partir de las 5:00 AM, llegando a su máximo a las 17:00 PM.
